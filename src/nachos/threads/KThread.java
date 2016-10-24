@@ -496,12 +496,14 @@ public class KThread {
     }
 
     public static void selfTest() {
-        Communicator com1 = new Communicator();
+    	SelfTests st = new SelfTests();
+        /*Communicator com1 = new Communicator();
         
         KThread thread1 = new KThread(new Speaker(com1, "Sherri"));
         thread1.fork();
         //once billy joe is done then the other people get cut off because he is the main thread which is done
-        new Listener(com1, "Billy Joe").run();
+        new Listener(com1, "Billy Joe").run();*/
+    	st.testBoat();
     }
 
     private static final char dbgThread = 't';
