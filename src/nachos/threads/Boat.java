@@ -4,12 +4,12 @@ import nachos.ag.BoatGrader;
 public class Boat
 {
 	static BoatGrader bg; 
-    static Communicator commFinish; 
+    static Communicator prueba; 
  
-    static Lock incrLock, boatLock, catmLock, cawcLock, wwLock; 
-    static int adultsOahu, childrenOahu, adultsMolokai, childrenMolokai; 
-    static boolean passengerTaken; 
-    static Condition childrenAllToMolokai, comebackAndWakeCoordinator, waitWake; 
+    static Lock lock_nueva_persona, lock_bote, lock3, lock1, lock2; 
+    static int adultos_oahu, ninos_oahu, adultos_molokai, childrenMolokai; 
+    static boolean hay_pasajero; 
+    static Condition2 todos_los_ninos, necesito_regresar, duermase; 
     
     public static void selfTest()
     {
@@ -32,21 +32,21 @@ public class Boat
 	bg = b;
 
 	// Instantiate global variables here
-	commFinish = new Communicator(); 
-    incrLock = new Lock(); 
-    boatLock = new Lock(); 
-    catmLock = new Lock(); 
-    childrenAllToMolokai = new Condition(catmLock); 
-    cawcLock = new Lock(); 
-    comebackAndWakeCoordinator = new Condition(cawcLock); 
-    wwLock = new Lock(); 
-    waitWake = new Condition(wwLock); 
+	prueba = new Communicator(); 
+    lock_nueva_persona = new Lock(); 
+    lock_bote = new Lock(); 
+    lock3 = new Lock(); 
+    todos_los_ninos = new Condition2(lock3); 
+    lock1 = new Lock(); 
+    necesito_regresar = new Condition2(lock1); 
+    lock2 = new Lock(); 
+    duermase = new Condition2(lock2); 
 
-    adultsOahu = 0; 
-    adultsMolokai = 0; 
-    childrenOahu = 0; 
+    adultos_oahu = 0; 
+    adultos_molokai = 0; 
+    ninos_oahu = 0; 
     childrenMolokai = 0; 
-    passengerTaken = false; 
+    hay_pasajero = false; 
 	
 	// Create threads here. See section 3.4 of the Nachos for Java
 	// Walkthrough linked from the projects page.
@@ -58,7 +58,7 @@ public class Boat
                 AdultItinerary(); 
             } 
         }); 
-        t.setName("Adult #" + i); 
+        t.setName("Adulto: " + i); 
         t.fork(); 
     } 
     for(int i = 0; i < children; i++) { 
@@ -68,15 +68,15 @@ public class Boat
                 ChildItinerary(); 
             } 
         }); 
-        t.setName("Child #" + i); 
+        t.setName("Nino: " + i); 
         t.fork(); 
     } 
 
-    commFinish.listen(); 
+    prueba.listen(); //con esto espero a que todos hayan terminado de hacer lo que hayan tratado de hacer
     
-    if (adultsOahu != 0) System.out.println("there are still " + adultsOahu + " adults in Oahu");
-    if (childrenOahu != 0 ) System.out.println("there are still " + childrenOahu + " children in Oahu");;
-    if (adultsOahu+childrenOahu == 0) System.out.println("All crossed");
+    if (adultos_oahu != 0) System.out.println("Adultos pendejos: " + adultos_oahu);
+    if (ninos_oahu != 0 ) System.out.println("Niños pendejos: " + ninos_oahu );;
+    if (adultos_oahu+ninos_oahu == 0) System.out.println("Gracias a dios");
 
     }
 
@@ -88,78 +88,91 @@ public class Boat
 	       bg.AdultRowToMolokai();
 	   indicates that an adult has rowed the boat across to Molokai
 	*/
-    	System.out.println("An adult is initialized."); 
-    	incrLock.acquire(); 
-        adultsOahu++; 
-        incrLock.release(); 
+    	System.out.println("Nuevo adulto"); 
+    	lock_nueva_persona.acquire(); 
+        adultos_oahu++; //bloqueo el recurso y adhiero un adulto
+        lock_nueva_persona.release(); 
  
-        catmLock.acquire(); 
-        childrenAllToMolokai.sleep(); 
-        catmLock.release(); 
-        bg.AdultRowToMolokai(); 
-        adultsOahu--; 
-        cawcLock.acquire(); 
-        comebackAndWakeCoordinator.wake(); 
-        cawcLock.release(); 
+        lock3.acquire(); //necesito que el adulto se duerma hasta que todos los niños esten del otro lado
+        todos_los_ninos.sleep(); 
+        lock3.release(); 
+        //si ya estan todos los niños del otro lado, entonces un niño tuvo que haber regresado
+        //si el adulto se despierta, lo primero que debe hacer es ir a Molokai
+        bg.AdultRowToMolokai();
+        adultos_oahu--; 
+        lock1.acquire();
+        //si ya pase el adulto, necesito que un niño regrese a verificar que no queda nadie
+        necesito_regresar.wake(); 
+        lock1.release(); 
     }
 
     static void ChildItinerary()
     {
     	System.out.println("A child is initialized."); 
-        incrLock.acquire(); 
-        childrenOahu++; 
-        incrLock.release(); 
+        lock_nueva_persona.acquire(); 
+        ninos_oahu++; //aumento la cantidad de niños en oahu
+        lock_nueva_persona.release(); 
  
-        ThreadedKernel.alarm.waitUntil(500); 
+        //ThreadedKernel.alarm.waitUntil(500); 
  
         while(true) { 
-            boatLock.acquire(); 
-            if(!passengerTaken && childrenOahu > 0) { 
-                passengerTaken = true; 
+        	//si hay un  niño, que empieze a moverse con el bote
+            lock_bote.acquire(); 
+            if(!hay_pasajero && ninos_oahu > 0) { 
+            	//quiere decir que todavía queda espacio para ser pasajero,entonces lo tomo
+                hay_pasajero = true; //momento, por que no le puse  lock a esto? pero funciona?
                 bg.ChildRideToMolokai(); 
-                childrenOahu--; 
+                ninos_oahu--; 
                 childrenMolokai++; 
-                boatLock.release(); 
+                //como es pasajero, simplemente llega a Molokai
+                lock_bote.release(); 
  
                 while(true) { 
-                    cawcLock.acquire(); 
-                    comebackAndWakeCoordinator.sleep(); 
-                    cawcLock.release(); 
+                    lock1.acquire(); 
+                    //por si es necesario regresar, lo dejo dormido
+                    necesito_regresar.sleep(); 
+                    lock1.release(); 
+                    //si es necesario regresar, regreso
                     bg.ChildRowToOahu(); 
-                    wwLock.acquire(); 
-                    waitWake.wake(); 
-                    wwLock.release(); 
+                    lock2.acquire(); 
+                    //del otro lado, despierto a otro niño para regresar
+                    duermase.wake(); 
+                    lock2.release(); 
                     bg.ChildRideToMolokai(); 
                 } 
             } else { 
-                passengerTaken = false; 
+                hay_pasajero = false; 
                 bg.ChildRowToMolokai(); 
-                childrenOahu--; 
+                ninos_oahu--; 
                 childrenMolokai++; 
-                if(childrenOahu > 0) { 
+                if(ninos_oahu > 0) { 
                     bg.ChildRowToOahu(); 
                     childrenMolokai--; 
-                    childrenOahu++; 
-                    boatLock.release(); 
-                } else { 
-                    // begin coordinating 
+                    ninos_oahu++; 
+                    lock_bote.release(); 
+                } else {//si llego a este punto es porque ya pase a todos los niños al otro lado
+                	//primero necesito que regrese un niño a revisar si no hay adultos
                     bg.ChildRowToOahu(); 
                     childrenMolokai--; 
-                    childrenOahu++; 
-                    while(adultsOahu > 0) { 
-                        catmLock.acquire(); 
-                        childrenAllToMolokai.wake(); 
-                        catmLock.release(); 
-                        wwLock.acquire(); 
-                        waitWake.sleep(); 
-                        wwLock.release(); 
-                        bg.ChildRowToMolokai(); 
+                    ninos_oahu++; 
+                    while(adultos_oahu > 0) { //si hay adultos en oahu
+                    	//primero le aviso a un adulto que se vaya al otro lado
+                        lock3.acquire(); 
+                        todos_los_ninos.wake(); 
+                        lock3.release(); 
+                        lock2.acquire(); 
+                        //una vez el adulto ya fue al otro lado, espero a que regrese un niño
+                        duermase.sleep(); 
+                        lock2.release(); 
+                        bg.ChildRowToMolokai();
+                        //como en teoria puede ser el mismo niño el que lleva y trae la barca para volver a revisar si hay alguien
+                        //dejo este childrowtooahu para que haga un viaje para "chequear"
                         bg.ChildRowToOahu(); 
                     } 
                     bg.ChildRowToMolokai(); 
                     childrenMolokai++; 
-                    childrenOahu--; 
-                    commFinish.speak(1); 
+                    ninos_oahu--; 
+                    prueba.speak(1); //si llega aca ya termino
                     return ; 
                 } 
             } 
