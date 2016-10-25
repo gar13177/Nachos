@@ -144,8 +144,8 @@ public class PriorityScheduler extends Scheduler {
 		public KThread nextThread() {
 		    Lib.assertTrue(Machine.interrupt().disabled());
 		   	if (waitQueue.isEmpty()) return null;
-		   	
-		   	return waitQueue.poll().thread;
+		   	acquire(waitQueue.poll().thread);
+			return lockingThread;
 		}
 	
 		/**
@@ -170,9 +170,9 @@ public class PriorityScheduler extends Scheduler {
 		 */
 		public boolean transferPriority;
 		//priority queue de java de tipo thread state en el cual se ordenan los thread a su ingreso
-		private java.util.PriorityQueue<ThreadState> waitQueue = new java.util.PriorityQueue<ThreadState>(8,new MyComparator());
-				
-    }
+		protected java.util.PriorityQueue<ThreadState> waitQueue = new java.util.PriorityQueue<ThreadState>(8,new MyComparator());
+		protected KThread lockingThread = null;
+	    }
 	    
     protected class MyComparator implements Comparator<ThreadState> {
 		
@@ -267,9 +267,9 @@ public class PriorityScheduler extends Scheduler {
 	 * @see	nachos.threads.ThreadQueue#nextThread
 	 */
 	public void acquire(PriorityQueue waitQueue) {
-	    ThreadState temp = waitQueue.pickNextThread();//obtengo el siguiente en cola
-	    this.setPriority(temp.getPriority());
-	    this.setInitTime(temp.getInitTime()-1000);
+		waitQueue.lockingThread = null;
+		waitQueue.waitQueue.remove(this);
+		waitQueue.lockingThread = this.thread;
 	}	
 	
 	public long getInitTime(){
