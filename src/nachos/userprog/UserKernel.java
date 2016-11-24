@@ -1,5 +1,7 @@
 package nachos.userprog;
 
+import java.util.LinkedList;
+
 import nachos.machine.*;
 import nachos.threads.*;
 import nachos.userprog.*;
@@ -23,6 +25,11 @@ public class UserKernel extends ThreadedKernel {
 	super.initialize(args);
 
 	console = new SynchConsole(Machine.console());
+	
+	freePagesLock = new Lock();
+	freePages = new LinkedList<Integer>();
+	for (int i = 0; i < Machine.processor().getNumPhysPages(); i++)
+		freePages.add(i);
 	
 	Machine.processor().setExceptionHandler(new Runnable() {
 		public void run() { exceptionHandler(); }
@@ -106,10 +113,43 @@ public class UserKernel extends ThreadedKernel {
     public void terminate() {
 	super.terminate();
     }
+    
+    public static int[] requestPages(int quantity){
+    	freePagesLock.acquire();
+    	
+    	if (freePages.size()<quantity){
+    		freePagesLock.release();
+    		return null;
+    	}
+    	
+    	int[] pages = new int[quantity];
+    	
+    	for (int i = 0; i < quantity; i++){
+    		pages[i] = freePages.remove();
+    	}
+    	
+    	freePagesLock.release();
+    	return pages;
+    	
+    }
+    
+    public static int getNumberOfFreePages(){
+    	return freePages.size();
+    }
+    
+    public static void freePage(int index){
+    	freePagesLock.acquire();
+    	freePages.add(index);
+    	freePagesLock.release();
+    }
 
     /** Globally accessible reference to the synchronized console. */
     public static SynchConsole console;
 
     // dummy variables to make javac smarter
     private static Coff dummy1 = null;
+    
+    
+    public static LinkedList<Integer> freePages;
+	public static Lock freePagesLock;
 }

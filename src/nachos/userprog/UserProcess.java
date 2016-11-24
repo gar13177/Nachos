@@ -134,18 +134,26 @@ public class UserProcess {
      */
     public int readVirtualMemory(int vaddr, byte[] data, int offset,
                  int length) {
-    Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
+	    Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
+	
+	    byte[] memory = Machine.processor().getMemory();
+	    
+	    int vpn = Processor.pageFromAddress(vaddr);//vaddr/pageSize
+	    
+		int voffset = Processor.offsetFromAddress(vaddr);//vaddr % pageSize
+		
+		TranslationEntry entry = pageTable[vpn];
+		entry.used = true;//error, por eso sobre escribe
+		int paddr = entry.ppn * pageSize + voffset;//physical page addr * tamanio + offset
 
-    byte[] memory = Machine.processor().getMemory();
-    
-    // for now, just assume that virtual addresses equal physical addresses
-    if (vaddr < 0 || vaddr >= memory.length)
-        return 0;
-
-    int amount = Math.min(length, memory.length-vaddr);
-    System.arraycopy(memory, vaddr, data, offset, amount);
-
-    return amount;
+		// validacion de puntero
+		if (paddr < 0 || paddr >= memory.length || !entry.valid)
+		    return 0;
+	
+	    int amount = Math.min(length, memory.length-paddr);
+	    System.arraycopy(memory, vaddr, data, offset, amount);
+	
+	    return amount;
     }
 
     /**
@@ -177,18 +185,28 @@ public class UserProcess {
      */
     public int writeVirtualMemory(int vaddr, byte[] data, int offset,
                   int length) {
-    Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
+	    Lib.assertTrue(offset >= 0 && length >= 0 && offset+length <= data.length);
+	
+	    byte[] memory = Machine.processor().getMemory();
+	    
+	    int vpn = Processor.pageFromAddress(vaddr);//vaddr/pageSize
+	    
+		int voffset = Processor.offsetFromAddress(vaddr);//vaddr % pageSize
+		
+		TranslationEntry entry = pageTable[vpn];
+		entry.used = true;//error, por eso sobre escribe
+		int paddr = entry.ppn * pageSize + voffset;//physical page addr * tamanio + offset
 
-    byte[] memory = Machine.processor().getMemory();
-    
-    // for now, just assume that virtual addresses equal physical addresses
-    if (vaddr < 0 || vaddr >= memory.length)
-        return 0;
+		// validacion de puntero, permisos de lectura
+		if (paddr < 0 || paddr >= memory.length || !entry.valid || entry.readOnly)
+		    return 0;
 
-    int amount = Math.min(length, memory.length-vaddr);
-    System.arraycopy(data, offset, memory, vaddr, amount);
-
-    return amount;
+		entry.dirty = true;
+		int amount = Math.min(length, memory.length-paddr);
+		
+	    System.arraycopy(data, offset, memory, vaddr, amount);
+	
+	    return amount;
     }
 
     /**
@@ -287,7 +305,7 @@ public class UserProcess {
      * @return  <tt>true</tt> if the sections were successfully loaded.
      */
     protected boolean loadSections() {
-    if (numPages > Machine.processor().getNumPhysPages()) {
+    if (numPages > Machine.processor().getNumPhysPages() || numPages > UserKernel.getNumberOfFreePages()) {
         coff.close();
         Lib.debug(dbgProcess, "\tinsufficient physical memory");
         return false;
@@ -299,12 +317,18 @@ public class UserProcess {
         
         Lib.debug(dbgProcess, "\tinitializing " + section.getName()
               + " section (" + section.getLength() + " pages)");
+        
+        int[] ppns = UserKernel.requestPages(section.getLength());
+        if (ppns == null) return false;//tamanio malo
 
         for (int i=0; i<section.getLength(); i++) {
-        int vpn = section.getFirstVPN()+i;
-
-        // for now, just assume virtual addresses=physical addresses
-        section.loadPage(i, vpn);
+	        int vpn = section.getFirstVPN()+i;
+	        TranslationEntry entry = pageTable[vpn];
+	
+	        entry.ppn = ppns[i];
+	        entry.valid = true;
+			entry.readOnly = section.isReadOnly();
+			section.loadPage(i, entry.ppn);
         }
     }
     
