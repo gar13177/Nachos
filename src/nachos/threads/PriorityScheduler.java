@@ -2,10 +2,15 @@ package nachos.threads;
 
 import nachos.machine.*;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
+import java.util.Random;
 import java.util.TreeSet;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.UUID;
 
 /**
  * A scheduler that chooses threads based on their priorities.
@@ -65,6 +70,7 @@ public class PriorityScheduler extends Scheduler {
 		   priority <= priorityMaximum);
 	
 	getThreadState(thread).setPriority(priority);
+	
     }
 
     public boolean increasePriority() {
@@ -119,7 +125,7 @@ public class PriorityScheduler extends Scheduler {
     protected ThreadState getThreadState(KThread thread) {
 		if (thread.schedulingState == null)
 		    thread.schedulingState = new ThreadState(thread);
-	
+		
 		return (ThreadState) thread.schedulingState;
 	    }
 	
@@ -143,8 +149,15 @@ public class PriorityScheduler extends Scheduler {
 	
 		public KThread nextThread() {
 		    Lib.assertTrue(Machine.interrupt().disabled());
-		   	if (waitQueue.isEmpty()) return null;
-		   	acquire(waitQueue.poll().thread);
+		    //primero saco el thread anterior y todos sus problemas
+		    if (lockingThread != null){
+		    	if (transferPriority){//si esta permitido transferir prioridad aqui
+		    		getThreadState(lockingThread).removeEffectivePriority(index_lockingThread);
+		    		index_lockingThread = -1;
+		    	}
+		    }
+		    if (waitQueue.isEmpty()) return null;
+		    acquire(waitQueue.poll().thread);
 			return lockingThread;
 		}
 	
@@ -163,6 +176,10 @@ public class PriorityScheduler extends Scheduler {
 		    Lib.assertTrue(Machine.interrupt().disabled());
 		    // implement me (if you want)
 		}
+		
+		public KThread getLockingThread(){
+			return lockingThread;
+		}
 	
 		/**
 		 * <tt>true</tt> if this queue should transfer priority from waiting
@@ -172,6 +189,7 @@ public class PriorityScheduler extends Scheduler {
 		//priority queue de java de tipo thread state en el cual se ordenan los thread a su ingreso
 		protected java.util.PriorityQueue<ThreadState> waitQueue = new java.util.PriorityQueue<ThreadState>(8,new MyComparator());
 		protected KThread lockingThread = null;
+		protected int index_lockingThread = -1;
 	    }
 	    
     protected class MyComparator implements Comparator<ThreadState> {
@@ -195,6 +213,7 @@ public class PriorityScheduler extends Scheduler {
      * @see	nachos.threads.KThread#schedulingState
      */
     protected class ThreadState {
+    	
 	/**
 	 * Allocate a new <tt>ThreadState</tt> object and associate it with the
 	 * specified thread.
@@ -205,8 +224,13 @@ public class PriorityScheduler extends Scheduler {
 	    this.thread = thread;
 	    this.init_time= Machine.timer().getTime();
 	    setPriority(priorityDefault);
+	    this.uniqueID = (new Random().nextFloat())+"";
 	}
-
+	
+	public String toString(){
+		return uniqueID+" - "+thread.getName()+" - priority "+priority+" - ePriority "+this.getEffectivePriority();
+	}
+	
 	/**
 	 * Return the priority of the associated thread.
 	 *
@@ -222,8 +246,16 @@ public class PriorityScheduler extends Scheduler {
 	 * @return	the effective priority of the associated thread.
 	 */
 	public int getEffectivePriority() {
-	    // implement me
-	    return priority;
+		return Collections.max(effectivePriority).intValue();
+	}
+	
+	public void removeEffectivePriority(int index){
+		this.effectivePriority.remove(index);
+	}
+	
+	public void setEffectivePriority(int effectivePriority, int index){
+		if (this.effectivePriority.get(index).intValue() < effectivePriority)
+			this.effectivePriority.set(index, effectivePriority);
 	}
 
 	/**
@@ -232,13 +264,35 @@ public class PriorityScheduler extends Scheduler {
 	 * @param	priority	the new priority.
 	 */
 	public void setPriority(int priority) {
-	    if (this.priority == priority)
-		return;
+	    //if (this.priority == priority)
+
 	    
 	    this.priority = priority;
 	    
-	    // implement me
+	    if (effectivePriority.size() > 0)
+	    	effectivePriority.set(0, priority);
+	    else
+	    	effectivePriority.add(priority);
+	    
+	    for (PriorityQueue pq: this.waitingQueues){
+	    	if (pq.transferPriority){
+	    		if(pq.lockingThread != null){
+	    			getThreadState(pq.lockingThread).setEffectivePriority(getEffectivePriority(), pq.index_lockingThread);
+	    		}
+	    	}
+	    }
+	    
 	}
+	
+	public boolean equals(Object o){
+		return ((ThreadState) o).uniqueID.equals(this.uniqueID);
+	}
+	
+	public int hashCode(){
+		return Integer.valueOf(uniqueID.substring(1));
+	}
+	
+	
 
 	/**
 	 * Called when <tt>waitForAccess(thread)</tt> (where <tt>thread</tt> is
@@ -253,7 +307,21 @@ public class PriorityScheduler extends Scheduler {
 	 * @see	nachos.threads.ThreadQueue#waitForAccess
 	 */
 	public void waitForAccess(PriorityQueue waitQueue) {
-	    waitQueue.waitQueue.add(this);
+		if (waitQueue.lockingThread != null)
+			if (waitQueue.lockingThread.equals(this.thread)){
+				if (waitQueue.transferPriority)
+					getThreadState(waitQueue.lockingThread).removeEffectivePriority(waitQueue.index_lockingThread);
+				
+				waitQueue.lockingThread = null;
+				waitQueue.index_lockingThread = -1;
+				
+			}
+		waitQueue.waitQueue.offer(this);
+		this.waitingQueues.add(waitQueue);
+	    
+		if (waitQueue.transferPriority)
+	    	if (waitQueue.lockingThread != null)
+	    		getThreadState(waitQueue.lockingThread).setEffectivePriority(this.getEffectivePriority(), waitQueue.index_lockingThread); 
 	}
 
 	/**
@@ -267,9 +335,20 @@ public class PriorityScheduler extends Scheduler {
 	 * @see	nachos.threads.ThreadQueue#nextThread
 	 */
 	public void acquire(PriorityQueue waitQueue) {
+		/*if (waitQueue.lockingThread != null){
+	    	if (waitQueue.transferPriority){//si esta permitido transferir prioridad aqui
+	    		getThreadState(waitQueue.lockingThread).removeEffectivePriority(waitQueue.index_lockingThread);
+	    		waitQueue.index_lockingThread = -1;
+	    	}
+	    }*/
 		waitQueue.lockingThread = null;
 		waitQueue.waitQueue.remove(this);
+		this.waitingQueues.remove(waitQueue);
 		waitQueue.lockingThread = this.thread;
+		if (waitQueue.transferPriority){//si se puede priority inversion
+			this.effectivePriority.add(getEffectivePriority());
+			waitQueue.index_lockingThread = this.effectivePriority.size()-1;
+		}
 	}	
 	
 	public long getInitTime(){
@@ -284,6 +363,9 @@ public class PriorityScheduler extends Scheduler {
 	protected KThread thread;
 	/** The priority of the associated thread. */
 	protected int priority;
+	protected ArrayList<Integer> effectivePriority = new ArrayList<Integer>();
 	protected long init_time;
+	protected String uniqueID = null;
+	protected LinkedHashSet<PriorityQueue> waitingQueues = new LinkedHashSet<PriorityQueue>(); 
     }
 }
